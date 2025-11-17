@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Claude Code 会话还原</title>
+  <!-- Highlight.js for syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 
         <style>
             * {
@@ -217,17 +219,29 @@
             }
 
             .text-section pre {
-                background: #1e1e1e;
+                background: #0d1117;
                 padding: 16px;
-                border-radius: 6px;
+                border-radius: 8px;
                 overflow-x: auto;
                 margin: 12px 0;
+                border: 1px solid #30363d;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             }
 
             .text-section pre code {
                 background: none;
                 padding: 0;
                 color: #e0e0e0;
+                font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+                font-size: 13px;
+                line-height: 1.6;
+                display: block;
+            }
+
+            /* 优化highlight.js的代码高亮显示 */
+            .text-section pre code.hljs {
+                background: transparent;
+                padding: 0;
             }
 
             .text-section a {
@@ -752,24 +766,37 @@ nanoGPT 完全舍弃了 padding 机制，选择固定长度序列和因果注意
 <p>在 <a href="llm<em>codebase/nanoGPT/data/openwebtext/prepare.py" target="_blank">prepare.py</a> 中，数据处理的关键特点是：</p>
 <ol>
   <li><strong>文档拼接，无 padding</strong>：</li>
-<p></ol>   - 每个文档 tokenize 后添加 <strong></em>INLINE<em>CODE</em>0</strong><em>（50256）作为分隔符<br>
-   - <strong>所有文档的 tokens 被直接连接成一个连续的大数组</strong>（line 58-74）<br>
-   <strong></em>CODE<em>BLOCK</em>0</strong>_</p>
+</ol>   - 每个文档 tokenize 后添加 <code>eot_token</code>（50256）作为分隔符
+   - <strong>所有文档的 tokens 被直接连接成一个连续的大数组</strong>（line 58-74）
+   <pre><code class="language-python">   arr_batch = np.concatenate(batch[&#x27;ids&#x27;])  # 直接拼接所有文档
+   </code></pre>
 <ol>
   <li><strong>随机采样固定长度序列</strong>（train.py:123-125）：</li>
-<p></ol>   <strong><em>CODE</em>BLOCK<em>1</strong></em><br>
-   - 随机选择起始位置，提取 <strong><em>INLINE</em>CODE<em>1</strong></em> 长度的序列<br>
-   - <strong>每个序列都是满的，没有任何 padding</strong></p>
+</ol>   <pre><code class="language-python">   ix = torch.randint(len(data) - block_size, (batch_size,))
+   x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
+   y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+   </code></pre>
+   - 随机选择起始位置，提取 <code>block_size</code> 长度的序列
+   - <strong>每个序列都是满的，没有任何 padding</strong>
 <h2>Attention 实现（model.py）</h2>
-<p>在 <a href="llm<em>codebase/nanoGPT/model.py#L29-L76" target="_blank">CausalSelfAttention</a> 中：</p>
+<p>在 <a href="llm</em>codebase/nanoGPT/model.py#L29-L76" target="_blank">CausalSelfAttention</a> 中：</p>
 <ol>
   <li><strong>Flash Attention 路径</strong>（line 62-64）：</li>
-<p></ol>   <strong></em>CODE<em>BLOCK</em>2</strong>_</p>
+</ol>   <pre><code class="language-python">   y = torch.nn.functional.scaled_dot_product_attention(
+       q, k, v, 
+       attn_mask=None,  # 没有 padding mask
+       dropout_p=self.dropout if self.training else 0, 
+       is_causal=True   # 只有因果掩码
+   )
+   </code></pre>
 <ol>
   <li><strong>手动实现路径</strong>（line 66-71）：</li>
-<p></ol>   <strong><em>CODE</em>BLOCK<em>3</strong></em><br>
-   - <strong><em>INLINE</em>CODE<em>2</strong></em> 是预先注册的下三角矩阵（line 49-50）<br>
-   - <strong>只实现了因果掩码（causal mask），完全没有 padding mask</strong></p>
+</ol>   <pre><code class="language-python">   att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+   att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float(&#x27;-inf&#x27;))  # 只有三角形因果掩码
+   att = F.softmax(att, dim=-1)
+   </code></pre>
+   - <code>self.bias</code> 是预先注册的下三角矩阵（line 49-50）
+   - <strong>只实现了因果掩码（causal mask），完全没有 padding mask</strong>
 <h2>关键结论</h2>
 <p><strong>现代 nanoGPT 已完全舍弃了 padding 设计！</strong></p>
 <h3>为什么不需要 padding？</h3>
@@ -782,12 +809,12 @@ nanoGPT 完全舍弃了 padding 机制，选择固定长度序列和因果注意
 <h3>历史上的 padding 设计</h3>
 <p>早期 Transformer 训练确实有 left/right padding：</p>
 <ul>
-  <li><strong>Right padding</strong>：<strong><em>INLINE</em>CODE<em>3</strong></em></li>
+  <li><strong>Right padding</strong>：<code>[BOS, tok1, tok2, PAD, PAD]</code></li>
 <p></ul>  - 常用于 BERT 等双向模型<br>
   - 需要 padding mask 防止 attention 到 PAD<br>
   <br>
 <ul><br>
-  <li><strong>Left padding</strong>：<strong><em>INLINE</em>CODE<em>4</strong></em></li></p>
+  <li><strong>Left padding</strong>：<code>[PAD, PAD, BOS, tok1, tok2]</code></li></p>
 <p></ul>  - 曾用于某些生成模型<br>
   - 理论上可以保持生成位置对齐<br>
   <br>
@@ -803,5 +830,11 @@ nanoGPT 完全舍弃了 padding 机制，选择固定长度序列和因果注意
       <p>会话结束</p>
     </div>
   </div>
+  <!-- Highlight.js library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // Initialize syntax highlighting
+    hljs.highlightAll();
+  </script>
 </body>
 </html>
