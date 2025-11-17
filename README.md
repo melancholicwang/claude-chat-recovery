@@ -16,11 +16,13 @@
 - 按时间顺序重建完整对话流程
 - 将同一个消息的多个内容块聚合在一起
 
-📊 **友好的输出格式**
-- 清晰的分隔线和标题
+📊 **多种输出格式**
+- **文本格式（TXT）**：清晰的分隔线和标题，适合终端查看
+- **Markdown格式（MD）**：结构化的markdown文档，适合GitHub/在线阅读
 - Emoji 图标提升可读性
 - 合理的内容截断和预览
 - 时间戳格式化
+- 自动保留原始markdown格式的内容
 
 ## 数据结构说明
 
@@ -90,18 +92,39 @@ Claude Code 的会话数据以 JSONL（JSON Lines）格式存储，每一行是�
 ### 基本用法
 
 ```bash
-# 使用默认文件名 case.jsonl
+# 使用默认文件名 case.jsonl，输出文本格式
 python3 restore_chat.py
 
-# 指定输入文件
+# 指定输入文件，输出文本格式
 python3 restore_chat.py your_chat.jsonl
+
+# 输出Markdown格式
+python3 restore_chat.py --format markdown
+
+# 使用短参数 -f 指定格式
+python3 restore_chat.py -f md
+
+# 指定输入文件并输出为Markdown格式
+python3 restore_chat.py your_chat.jsonl --format markdown
 ```
 
-### 输出
+### 输出格式
 
-程序会自动生成一个 `*_restored.txt` 文件，包含格式化后的完整对话。
+程序支持两种输出格式：
 
-示例输出：
+1. **文本格式（默认）**：生成 `*_restored.txt` 文件
+   - 使用ASCII字符绘制的边框
+   - 清晰的分隔线
+   - 适合在终端或文本编辑器中查看
+
+2. **Markdown格式**：生成 `*_restored.md` 文件
+   - 标准的Markdown语法
+   - 使用代码块包裹工具结果
+   - 思考过程使用可折叠的 `<details>` 标签
+   - 保留原始回复中的markdown格式
+   - 适合在GitHub、在线markdown查看器或支持markdown的编辑器中查看
+
+#### 示例输出 - 文本格式
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -136,6 +159,58 @@ Claude 的回复内容...
 
   📤 工具结果:
     文件内容...
+```
+
+#### 示例输出 - Markdown格式
+
+```markdown
+# Claude Code 会话还原
+
+---
+
+## 👤 用户 `2025-11-13 16:23:46`
+
+📂 **打开文件**: `/path/to/file.py`
+
+这是用户的问题...
+
+---
+
+## 🤖 Claude `2025-11-13 16:23:52`
+
+📊 **Tokens**: 输入=10, 输出=436, 缓存读取=12447
+
+### 💭 思考过程
+
+<details>
+<summary>展开思考过程</summary>
+
+\`\`\`
+Claude 的思考内容...
+\`\`\`
+
+</details>
+
+### 💬 回复
+
+Claude 的回复内容（保留原始markdown格式）...
+
+#### 🔧 工具调用: `Read`
+
+**ID**: `toolu_xxx`
+
+**参数**:
+\`\`\`json
+{
+  "file_path": "/path/to/file.py"
+}
+\`\`\`
+
+#### 📤 工具结果:
+
+\`\`\`
+文件内容...
+\`\`\`
 ```
 
 ## 文件说明
@@ -237,14 +312,14 @@ class ChatRestorer:
 
 - 不支持从 SQLite 数据库（`__store.db`）读取元数据
 - 不处理项目级别的组织（仅处理单个 JSONL 文件）
-- 输出格式固定为纯文本（未来可扩展支持 Markdown/HTML）
 
 ## 未来改进
 
 - [ ] 支持从 `~/.claude/__store.db` 读取会话列表
 - [ ] 添加交互式会话选择菜单
 - [ ] 支持批量导出多个会话
-- [ ] 添加 Markdown 和 HTML 输出格式
+- [x] 添加 Markdown 输出格式 ✅
+- [ ] 添加 HTML 输出格式
 - [ ] 支持配置文件自定义格式化规则
 - [ ] 添加会话统计分析功能
 
