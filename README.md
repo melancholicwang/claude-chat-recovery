@@ -19,6 +19,12 @@
 📊 **多种输出格式**
 - **文本格式（TXT）**：清晰的分隔线和标题，适合终端查看
 - **Markdown格式（MD）**：结构化的markdown文档，适合GitHub/在线阅读
+- **HTML格式（HTML）**：现代化的交互式网页界面，最佳阅读体验
+  - 深色主题设计，类似Claude聊天界面
+  - 可点击折叠/展开的思考过程
+  - 精美的代码高亮和排版
+  - 响应式设计，支持移动端
+  - 平滑的动画效果
 - Emoji 图标提升可读性
 - 合理的内容截断和预览
 - 时间戳格式化
@@ -115,6 +121,9 @@ python3 restore_chat.py -f md
 
 # 指定输入文件并输出为Markdown格式
 python3 restore_chat.py your_chat.jsonl --format markdown
+
+# 输出为HTML格式（推荐：最佳阅读体验）
+python3 restore_chat.py your_chat.jsonl --format html
 ```
 
 #### 批量处理目录
@@ -126,8 +135,11 @@ python3 restore_chat.py --dir /path/to/chats
 # 批量处理并输出为Markdown格式
 python3 restore_chat.py --dir /path/to/chats --format markdown
 
+# 批量处理并输出为HTML格式（推荐）
+python3 restore_chat.py --dir /path/to/chats --format html
+
 # 使用短参数
-python3 restore_chat.py -d /path/to/chats -f md
+python3 restore_chat.py -d /path/to/chats -f html
 ```
 
 **批量处理说明**：
@@ -139,7 +151,7 @@ python3 restore_chat.py -d /path/to/chats -f md
 
 ### 输出格式
 
-程序支持两种输出格式：
+程序支持三种输出格式：
 
 1. **文本格式（默认）**：生成 `*_restored.txt` 文件
    - 使用ASCII字符绘制的边框
@@ -152,6 +164,17 @@ python3 restore_chat.py -d /path/to/chats -f md
    - 思考过程使用可折叠的 `<details>` 标签
    - 保留原始回复中的markdown格式
    - 适合在GitHub、在线markdown查看器或支持markdown的编辑器中查看
+
+3. **HTML格式（推荐）**：生成 `*_restored.html` 文件
+   - 🎨 精美的深色主题设计，类似Claude聊天界面
+   - 💫 平滑的动画效果和交互体验
+   - 🖱️ 可点击折叠/展开的思考过程
+   - 📱 响应式设计，完美支持移动端
+   - 🎯 清晰的视觉层次和色彩编码
+   - 📊 直观显示token使用统计
+   - 🔍 自动代码高亮和格式化
+   - 💻 优雅的等宽字体显示代码和工具结果
+   - 在浏览器中打开即可获得最佳阅读体验
 
 #### 示例输出 - 文本格式
 
@@ -374,9 +397,10 @@ class ChatRestorer:
 - [ ] 添加交互式会话选择菜单
 - [x] 支持批量导出多个会话 ✅
 - [x] 添加 Markdown 输出格式 ✅
-- [ ] 添加 HTML 输出格式
+- [x] 添加 HTML 输出格式 ✅
 - [ ] 支持配置文件自定义格式化规则
 - [ ] 添加会话统计分析功能（token使用汇总、会话时长等）
+- [ ] 在HTML格式中添加语法高亮库（如highlight.js）
 
 ## 许可证
 
