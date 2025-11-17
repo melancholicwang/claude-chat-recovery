@@ -10,6 +10,7 @@ import sys
 import argparse
 import os
 import html as html_module
+import re
 from pathlib import Path
 from typing import Dict, List, Any
 from collections import defaultdict
@@ -403,6 +404,87 @@ class ChatRestorer:
 
         return '\n'.join(output)
 
+    def _markdown_to_html(self, markdown_text: str) -> str:
+        """简单的Markdown到HTML转换"""
+        if not markdown_text:
+            return ""
+
+        # HTML转义
+        html = html_module.escape(markdown_text)
+
+        # 代码块（三个反引号）- 需要先处理，避免内部内容被转换
+        code_blocks = []
+        def save_code_block(match):
+            lang = match.group(1) or ''
+            code = match.group(2)
+            placeholder = f'___CODE_BLOCK_{len(code_blocks)}___'
+            code_blocks.append(f'<pre><code class="language-{lang}">{code}</code></pre>')
+            return placeholder
+        html = re.sub(r'```(\w*)\n(.*?)```', save_code_block, html, flags=re.DOTALL)
+
+        # 行内代码（单个反引号）- 也需要保护起来
+        inline_codes = []
+        def save_inline_code(match):
+            code = match.group(1)
+            placeholder = f'___INLINE_CODE_{len(inline_codes)}___'
+            inline_codes.append(f'<code>{code}</code>')
+            return placeholder
+        html = re.sub(r'`([^`]+)`', save_inline_code, html)
+
+        # 粗体（需要处理嵌套）
+        html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'__(.+?)__', r'<strong>\1</strong>', html)
+
+        # 斜体
+        html = re.sub(r'\*([^\*\s][^\*]*[^\*\s])\*', r'<em>\1</em>', html)
+        html = re.sub(r'_([^_\s][^_]*[^_\s])_', r'<em>\1</em>', html)
+
+        # 标题
+        html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+
+        # 链接
+        html = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'<a href="\2" target="_blank">\1</a>', html)
+
+        # 无序列表
+        def replace_list(match):
+            items = match.group(0)
+            items_html = re.sub(r'^[-*+] (.+)$', r'  <li>\1</li>', items, flags=re.MULTILINE)
+            return f'<ul>\n{items_html}\n</ul>'
+        html = re.sub(r'(?:^[-*+] .+$\n?)+', replace_list, html, flags=re.MULTILINE)
+
+        # 有序列表
+        def replace_ordered_list(match):
+            items = match.group(0)
+            items_html = re.sub(r'^\d+\. (.+)$', r'  <li>\1</li>', items, flags=re.MULTILINE)
+            return f'<ol>\n{items_html}\n</ol>'
+        html = re.sub(r'(?:^\d+\. .+$\n?)+', replace_ordered_list, html, flags=re.MULTILINE)
+
+        # 恢复代码块
+        for i, code_block in enumerate(code_blocks):
+            html = html.replace(f'___CODE_BLOCK_{i}___', code_block)
+
+        # 恢复行内代码
+        for i, inline_code in enumerate(inline_codes):
+            html = html.replace(f'___INLINE_CODE_{i}___', inline_code)
+
+        # 段落处理：空行分隔的段落
+        paragraphs = html.split('\n\n')
+        result_paragraphs = []
+        for para in paragraphs:
+            para = para.strip()
+            if para:
+                # 如果是块级元素（标题、列表、代码块），不包裹p标签
+                if para.startswith(('<h', '<ul>', '<ol>', '<pre>')):
+                    result_paragraphs.append(para)
+                else:
+                    # 普通段落，将单个换行转为<br>
+                    para = para.replace('\n', '<br>\n')
+                    result_paragraphs.append(f'<p>{para}</p>')
+
+        return '\n'.join(result_paragraphs)
+
     def _get_html_css(self) -> str:
         """获取HTML的CSS样式"""
         return """
@@ -456,6 +538,8 @@ class ChatRestorer:
             .message {
                 margin-bottom: 24px;
                 animation: fadeIn 0.3s ease-in;
+                border-radius: 8px;
+                overflow: hidden;
             }
 
             @keyframes fadeIn {
@@ -467,8 +551,23 @@ class ChatRestorer:
                 display: flex;
                 align-items: center;
                 margin-bottom: 12px;
-                padding: 8px 0;
+                padding: 12px;
                 border-bottom: 2px solid #3a3a3a;
+                cursor: pointer;
+                user-select: none;
+                transition: background-color 0.2s;
+            }
+
+            .message-header:hover {
+                background-color: rgba(255, 255, 255, 0.05);
+            }
+
+            .message.collapsed .message-content {
+                display: none;
+            }
+
+            .message.collapsed .message-header {
+                margin-bottom: 0;
             }
 
             .message-icon {
@@ -560,10 +659,35 @@ class ChatRestorer:
                 line-height: 1.7;
             }
 
-            .text-section h1, .text-section h2, .text-section h3 {
+            .text-section.highlight {
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+                border-left: 4px solid #667eea;
+                padding: 16px;
+                border-radius: 6px;
+            }
+
+            .text-section h1 {
+                font-size: 24px;
+                margin-top: 20px;
+                margin-bottom: 12px;
+                color: #fff;
+                font-weight: 600;
+            }
+
+            .text-section h2 {
+                font-size: 20px;
                 margin-top: 16px;
+                margin-bottom: 10px;
+                color: #fff;
+                font-weight: 600;
+            }
+
+            .text-section h3 {
+                font-size: 18px;
+                margin-top: 14px;
                 margin-bottom: 8px;
                 color: #fff;
+                font-weight: 600;
             }
 
             .text-section code {
@@ -587,6 +711,36 @@ class ChatRestorer:
                 background: none;
                 padding: 0;
                 color: #e0e0e0;
+            }
+
+            .text-section a {
+                color: #667eea;
+                text-decoration: none;
+                border-bottom: 1px solid transparent;
+                transition: border-color 0.2s;
+            }
+
+            .text-section a:hover {
+                border-bottom-color: #667eea;
+            }
+
+            .text-section ul, .text-section ol {
+                margin: 12px 0;
+                padding-left: 24px;
+            }
+
+            .text-section li {
+                margin: 6px 0;
+            }
+
+            .text-section strong {
+                color: #fff;
+                font-weight: 600;
+            }
+
+            .text-section em {
+                font-style: italic;
+                color: #c0c0c0;
             }
 
             .tool-section {
@@ -800,7 +954,7 @@ class ChatRestorer:
             message_class = 'assistant-message'
 
         html_parts.append(f'<div class="message {message_class}">')
-        html_parts.append(f'  <div class="message-header">')
+        html_parts.append(f'  <div class="message-header" onclick="this.parentElement.classList.toggle(\'collapsed\');">')
         html_parts.append(f'    <span class="message-icon">{icon}</span>')
         html_parts.append(f'    <div class="message-meta">')
         html_parts.append(f'      <span class="message-role">{role_text}</span>')
@@ -830,7 +984,7 @@ class ChatRestorer:
             if item_type == 'thinking':
                 thinking_text = html_module.escape(item.get('thinking', ''))
                 html_parts.append(f'    <div class="thinking-section">')
-                html_parts.append(f'      <div class="thinking-header" onclick="this.parentElement.classList.toggle(\'collapsed\'); this.nextElementSibling.classList.toggle(\'hidden\');">')
+                html_parts.append(f'      <div class="thinking-header" onclick="event.stopPropagation(); this.parentElement.classList.toggle(\'collapsed\'); this.nextElementSibling.classList.toggle(\'hidden\');">')
                 html_parts.append(f'        <span class="collapse-icon">▼</span>')
                 html_parts.append(f'        <span>💭 思考过程</span>')
                 html_parts.append(f'      </div>')
@@ -844,9 +998,13 @@ class ChatRestorer:
                     file_path = text.replace('<ide_opened_file>', '').replace('</ide_opened_file>', '').strip()
                     html_parts.append(f'    <div class="text-section">📂 <strong>打开文件:</strong> <code>{html_module.escape(file_path)}</code></div>')
                 else:
-                    # 简单的markdown到html转换（保持简洁）
-                    escaped_text = html_module.escape(text)
-                    html_parts.append(f'    <div class="text-section">{escaped_text}</div>')
+                    # Markdown到HTML转换并高亮显示
+                    markdown_html = self._markdown_to_html(text)
+                    # 为Assistant的文本回复添加高亮
+                    if role == 'assistant':
+                        html_parts.append(f'    <div class="text-section highlight">{markdown_html}</div>')
+                    else:
+                        html_parts.append(f'    <div class="text-section">{markdown_html}</div>')
 
             elif item_type == 'tool_use':
                 html_parts.append(f'    {self.format_tool_use_html(item)}')
