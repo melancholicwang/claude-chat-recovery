@@ -10,7 +10,6 @@ import sys
 import argparse
 import os
 import html as html_module
-import re
 from pathlib import Path
 from typing import Dict, List, Any
 from collections import defaultdict
@@ -403,90 +402,6 @@ class ChatRestorer:
         output.append("**会话结束**")
 
         return '\n'.join(output)
-
-    def _markdown_to_html(self, markdown_text: str) -> str:
-        """简单的Markdown到HTML转换"""
-        if not markdown_text:
-            return ""
-
-        # HTML转义
-        html = html_module.escape(markdown_text)
-
-        # 代码块（三个反引号）- 需要先处理，避免内部内容被转换
-        # 使用特殊字符作为占位符，避免被markdown规则匹配（如__会被识别为粗体）
-        code_blocks = []
-        def save_code_block(match):
-            lang = match.group(1) or ''
-            code = match.group(2)
-            placeholder = f'◆CODEBLOCK§{len(code_blocks)}◆'
-            code_blocks.append(f'<pre><code class="language-{lang}">{code}</code></pre>')
-            return placeholder
-        html = re.sub(r'```(\w*)\n(.*?)```', save_code_block, html, flags=re.DOTALL)
-
-        # 行内代码（单个反引号）- 也需要保护起来
-        inline_codes = []
-        def save_inline_code(match):
-            code = match.group(1)
-            placeholder = f'◇INLINECODE§{len(inline_codes)}◇'
-            inline_codes.append(f'<code>{code}</code>')
-            return placeholder
-        html = re.sub(r'`([^`]+)`', save_inline_code, html)
-
-        # 粗体（需要处理嵌套）
-        html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
-        html = re.sub(r'__(.+?)__', r'<strong>\1</strong>', html)
-
-        # 斜体
-        html = re.sub(r'\*([^\*\s][^\*]*[^\*\s])\*', r'<em>\1</em>', html)
-        html = re.sub(r'_([^_\s][^_]*[^_\s])_', r'<em>\1</em>', html)
-
-        # 标题
-        html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
-        html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
-        html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
-
-        # 链接
-        html = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'<a href="\2" target="_blank">\1</a>', html)
-
-        # 无序列表
-        def replace_list(match):
-            items = match.group(0)
-            items_html = re.sub(r'^[-*+] (.+)$', r'  <li>\1</li>', items, flags=re.MULTILINE)
-            return f'<ul>\n{items_html}\n</ul>'
-        html = re.sub(r'(?:^[-*+] .+$\n?)+', replace_list, html, flags=re.MULTILINE)
-
-        # 有序列表
-        def replace_ordered_list(match):
-            items = match.group(0)
-            items_html = re.sub(r'^\d+\. (.+)$', r'  <li>\1</li>', items, flags=re.MULTILINE)
-            return f'<ol>\n{items_html}\n</ol>'
-        html = re.sub(r'(?:^\d+\. .+$\n?)+', replace_ordered_list, html, flags=re.MULTILINE)
-
-        # 段落处理：空行分隔的段落（在恢复代码块之前处理，避免代码块被影响）
-        paragraphs = html.split('\n\n')
-        result_paragraphs = []
-        for para in paragraphs:
-            para = para.strip()
-            if para:
-                # 如果包含代码块占位符，直接添加不处理
-                if '◆CODEBLOCK§' in para or para.startswith(('<h', '<ul>', '<ol>')):
-                    result_paragraphs.append(para)
-                else:
-                    # 普通段落，将单个换行转为<br>
-                    para = para.replace('\n', '<br>\n')
-                    result_paragraphs.append(f'<p>{para}</p>')
-
-        html = '\n'.join(result_paragraphs)
-
-        # 恢复代码块（在段落处理之后，避免代码块内容被段落处理影响）
-        for i, code_block in enumerate(code_blocks):
-            html = html.replace(f'◆CODEBLOCK§{i}◆', code_block)
-
-        # 恢复行内代码
-        for i, inline_code in enumerate(inline_codes):
-            html = html.replace(f'◇INLINECODE§{i}◇', inline_code)
-
-        return html
 
     def _get_html_css(self) -> str:
         """获取HTML的CSS样式"""
@@ -1013,13 +928,14 @@ class ChatRestorer:
                     file_path = text.replace('<ide_opened_file>', '').replace('</ide_opened_file>', '').strip()
                     html_parts.append(f'    <div class="text-section">📂 <strong>打开文件:</strong> <code>{html_module.escape(file_path)}</code></div>')
                 else:
-                    # Markdown到HTML转换并高亮显示
-                    markdown_html = self._markdown_to_html(text)
+                    # 保留原始markdown文本，由客户端JavaScript渲染
+                    # 使用data-markdown属性存储原始文本，避免HTML转义问题
+                    escaped_text = html_module.escape(text)
                     # 为Assistant的文本回复添加高亮
                     if role == 'assistant':
-                        html_parts.append(f'    <div class="text-section highlight">{markdown_html}</div>')
+                        html_parts.append(f'    <div class="text-section highlight markdown-content" data-markdown="{escaped_text}"></div>')
                     else:
-                        html_parts.append(f'    <div class="text-section">{markdown_html}</div>')
+                        html_parts.append(f'    <div class="text-section markdown-content" data-markdown="{escaped_text}"></div>')
 
             elif item_type == 'tool_use':
                 html_parts.append(f'    {self.format_tool_use_html(item)}')
@@ -1061,11 +977,45 @@ class ChatRestorer:
         html_parts.append('      <p>会话结束</p>')
         html_parts.append('    </div>')
         html_parts.append('  </div>')
-        html_parts.append('  <!-- Highlight.js library -->')
+        html_parts.append('')
+        html_parts.append('  <!-- JavaScript Libraries -->')
+        html_parts.append('  <!-- Marked.js for Markdown parsing -->')
+        html_parts.append('  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>')
+        html_parts.append('  <!-- DOMPurify for XSS protection -->')
+        html_parts.append('  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>')
+        html_parts.append('  <!-- Highlight.js for syntax highlighting -->')
         html_parts.append('  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>')
+        html_parts.append('')
         html_parts.append('  <script>')
-        html_parts.append('    // Initialize syntax highlighting')
-        html_parts.append('    hljs.highlightAll();')
+        html_parts.append('    // Configure marked.js to use highlight.js for code blocks')
+        html_parts.append('    marked.setOptions({')
+        html_parts.append('      highlight: function(code, lang) {')
+        html_parts.append('        if (lang && hljs.getLanguage(lang)) {')
+        html_parts.append('          try {')
+        html_parts.append('            return hljs.highlight(code, { language: lang }).value;')
+        html_parts.append('          } catch (err) {')
+        html_parts.append('            console.error("Highlight error:", err);')
+        html_parts.append('          }')
+        html_parts.append('        }')
+        html_parts.append('        return hljs.highlightAuto(code).value;')
+        html_parts.append('      },')
+        html_parts.append('      breaks: true,  // Support GFM line breaks')
+        html_parts.append('      gfm: true      // Enable GitHub Flavored Markdown')
+        html_parts.append('    });')
+        html_parts.append('')
+        html_parts.append('    // Render all markdown content')
+        html_parts.append('    document.addEventListener("DOMContentLoaded", function() {')
+        html_parts.append('      const markdownElements = document.querySelectorAll(".markdown-content");')
+        html_parts.append('      markdownElements.forEach(function(element) {')
+        html_parts.append('        const markdownText = element.getAttribute("data-markdown");')
+        html_parts.append('        if (markdownText) {')
+        html_parts.append('          // Parse markdown and sanitize HTML')
+        html_parts.append('          const rawHtml = marked.parse(markdownText);')
+        html_parts.append('          const cleanHtml = DOMPurify.sanitize(rawHtml);')
+        html_parts.append('          element.innerHTML = cleanHtml;')
+        html_parts.append('        }')
+        html_parts.append('      });')
+        html_parts.append('    });')
         html_parts.append('  </script>')
         html_parts.append('</body>')
         html_parts.append('</html>')
