@@ -413,11 +413,12 @@ class ChatRestorer:
         html = html_module.escape(markdown_text)
 
         # 代码块（三个反引号）- 需要先处理，避免内部内容被转换
+        # 使用特殊字符作为占位符，避免被markdown规则匹配（如__会被识别为粗体）
         code_blocks = []
         def save_code_block(match):
             lang = match.group(1) or ''
             code = match.group(2)
-            placeholder = f'___CODE_BLOCK_{len(code_blocks)}___'
+            placeholder = f'◆CODEBLOCK§{len(code_blocks)}◆'
             code_blocks.append(f'<pre><code class="language-{lang}">{code}</code></pre>')
             return placeholder
         html = re.sub(r'```(\w*)\n(.*?)```', save_code_block, html, flags=re.DOTALL)
@@ -426,7 +427,7 @@ class ChatRestorer:
         inline_codes = []
         def save_inline_code(match):
             code = match.group(1)
-            placeholder = f'___INLINE_CODE_{len(inline_codes)}___'
+            placeholder = f'◇INLINECODE§{len(inline_codes)}◇'
             inline_codes.append(f'<code>{code}</code>')
             return placeholder
         html = re.sub(r'`([^`]+)`', save_inline_code, html)
@@ -461,29 +462,31 @@ class ChatRestorer:
             return f'<ol>\n{items_html}\n</ol>'
         html = re.sub(r'(?:^\d+\. .+$\n?)+', replace_ordered_list, html, flags=re.MULTILINE)
 
-        # 恢复代码块
-        for i, code_block in enumerate(code_blocks):
-            html = html.replace(f'___CODE_BLOCK_{i}___', code_block)
-
-        # 恢复行内代码
-        for i, inline_code in enumerate(inline_codes):
-            html = html.replace(f'___INLINE_CODE_{i}___', inline_code)
-
-        # 段落处理：空行分隔的段落
+        # 段落处理：空行分隔的段落（在恢复代码块之前处理，避免代码块被影响）
         paragraphs = html.split('\n\n')
         result_paragraphs = []
         for para in paragraphs:
             para = para.strip()
             if para:
-                # 如果是块级元素（标题、列表、代码块），不包裹p标签
-                if para.startswith(('<h', '<ul>', '<ol>', '<pre>')):
+                # 如果包含代码块占位符，直接添加不处理
+                if '◆CODEBLOCK§' in para or para.startswith(('<h', '<ul>', '<ol>')):
                     result_paragraphs.append(para)
                 else:
                     # 普通段落，将单个换行转为<br>
                     para = para.replace('\n', '<br>\n')
                     result_paragraphs.append(f'<p>{para}</p>')
 
-        return '\n'.join(result_paragraphs)
+        html = '\n'.join(result_paragraphs)
+
+        # 恢复代码块（在段落处理之后，避免代码块内容被段落处理影响）
+        for i, code_block in enumerate(code_blocks):
+            html = html.replace(f'◆CODEBLOCK§{i}◆', code_block)
+
+        # 恢复行内代码
+        for i, inline_code in enumerate(inline_codes):
+            html = html.replace(f'◇INLINECODE§{i}◇', inline_code)
+
+        return html
 
     def _get_html_css(self) -> str:
         """获取HTML的CSS样式"""
@@ -700,17 +703,29 @@ class ChatRestorer:
             }
 
             .text-section pre {
-                background: #1e1e1e;
+                background: #0d1117;
                 padding: 16px;
-                border-radius: 6px;
+                border-radius: 8px;
                 overflow-x: auto;
                 margin: 12px 0;
+                border: 1px solid #30363d;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             }
 
             .text-section pre code {
                 background: none;
                 padding: 0;
                 color: #e0e0e0;
+                font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+                font-size: 13px;
+                line-height: 1.6;
+                display: block;
+            }
+
+            /* 优化highlight.js的代码高亮显示 */
+            .text-section pre code.hljs {
+                background: transparent;
+                padding: 0;
             }
 
             .text-section a {
@@ -1025,6 +1040,8 @@ class ChatRestorer:
         html_parts.append('  <meta charset="UTF-8">')
         html_parts.append('  <meta name="viewport" content="width=device-width, initial-scale=1.0">')
         html_parts.append('  <title>Claude Code 会话还原</title>')
+        html_parts.append('  <!-- Highlight.js for syntax highlighting -->')
+        html_parts.append('  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">')
         html_parts.append(self._get_html_css())
         html_parts.append('</head>')
         html_parts.append('<body>')
@@ -1044,6 +1061,12 @@ class ChatRestorer:
         html_parts.append('      <p>会话结束</p>')
         html_parts.append('    </div>')
         html_parts.append('  </div>')
+        html_parts.append('  <!-- Highlight.js library -->')
+        html_parts.append('  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>')
+        html_parts.append('  <script>')
+        html_parts.append('    // Initialize syntax highlighting')
+        html_parts.append('    hljs.highlightAll();')
+        html_parts.append('  </script>')
         html_parts.append('</body>')
         html_parts.append('</html>')
 
