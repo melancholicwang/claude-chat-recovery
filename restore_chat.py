@@ -8,6 +8,8 @@ Claude Code 会话还原程序
 import json
 import sys
 import argparse
+import os
+from pathlib import Path
 from typing import Dict, List, Any
 from collections import defaultdict
 from datetime import datetime
@@ -399,31 +401,162 @@ class ChatRestorer:
         return '\n'.join(output)
 
 
+def scan_jsonl_files(directory: str) -> List[str]:
+    """
+    扫描目录中所有的jsonl文件，排除agent-前缀的文件
+    返回符合条件的文件路径列表
+    """
+    directory_path = Path(directory)
+    if not directory_path.exists():
+        raise FileNotFoundError(f"目录不存在: {directory}")
+
+    if not directory_path.is_dir():
+        raise NotADirectoryError(f"不是有效的目录: {directory}")
+
+    jsonl_files = []
+
+    # 扫描所有.jsonl和.json文件
+    for file_path in directory_path.glob('*.jsonl'):
+        # 排除agent-前缀的文件
+        if not file_path.name.startswith('agent-'):
+            # 检查文件大小，跳过空文件
+            if file_path.stat().st_size > 0:
+                jsonl_files.append(str(file_path))
+
+    # 也扫描.json文件（如示例中的bb81858c-f8ba-4a96-8750-79bac1934255.json）
+    for file_path in directory_path.glob('*.json'):
+        if not file_path.name.startswith('agent-'):
+            if file_path.stat().st_size > 0:
+                jsonl_files.append(str(file_path))
+
+    return sorted(jsonl_files)
+
+
+def process_single_file(input_file: str, output_dir: str, output_format: str) -> dict:
+    """
+    处理单个文件
+    返回处理结果的统计信息
+    """
+    result = {
+        'input_file': input_file,
+        'success': False,
+        'output_file': None,
+        'error': None
+    }
+
+    try:
+        restorer = ChatRestorer(input_file, output_format)
+        output = restorer.restore()
+
+        # 生成输出文件名
+        input_path = Path(input_file)
+        base_name = input_path.stem  # 不包含扩展名的文件名
+
+        if output_format == 'markdown':
+            output_file = Path(output_dir) / f"{base_name}_restored.md"
+        else:
+            output_file = Path(output_dir) / f"{base_name}_restored.txt"
+
+        # 写入文件
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(output)
+
+        result['success'] = True
+        result['output_file'] = str(output_file)
+
+    except Exception as e:
+        result['error'] = str(e)
+
+    return result
+
+
+def batch_process_directory(directory: str, output_format: str = 'txt') -> None:
+    """
+    批量处理目录中的所有JSONL文件
+    """
+    print(f"📁 正在扫描目录: {directory}")
+
+    # 扫描文件
+    try:
+        jsonl_files = scan_jsonl_files(directory)
+    except Exception as e:
+        print(f"❌ 错误: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not jsonl_files:
+        print("⚠️  未找到符合条件的JSONL文件（排除了agent-前缀和空文件）")
+        return
+
+    print(f"✅ 找到 {len(jsonl_files)} 个符合条件的文件")
+
+    # 创建输出目录
+    output_dir = Path(directory) / 'claude_parse'
+    output_dir.mkdir(exist_ok=True)
+    print(f"📂 输出目录: {output_dir}")
+    print(f"📄 输出格式: {output_format.upper()}")
+    print("")
+
+    # 批量处理
+    success_count = 0
+    failed_count = 0
+
+    for i, input_file in enumerate(jsonl_files, 1):
+        file_name = Path(input_file).name
+        print(f"[{i}/{len(jsonl_files)}] 处理中: {file_name} ... ", end='', flush=True)
+
+        result = process_single_file(input_file, str(output_dir), output_format)
+
+        if result['success']:
+            print(f"✅ 成功")
+            success_count += 1
+        else:
+            print(f"❌ 失败: {result['error']}")
+            failed_count += 1
+
+    # 输出统计信息
+    print("")
+    print("=" * 80)
+    print(f"批量处理完成！")
+    print(f"  成功: {success_count} 个文件")
+    print(f"  失败: {failed_count} 个文件")
+    print(f"  输出目录: {output_dir}")
+    print("=" * 80)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Claude Code 会话还原工具 - 将JSONL格式的会话数据转换为可读格式',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 使用默认文件（case.jsonl）输出为文本格式
+  # 处理单个文件（使用默认文件case.jsonl）
   python3 restore_chat.py
 
-  # 指定输入文件，输出为文本格式
+  # 指定输入文件
   python3 restore_chat.py my_chat.jsonl
 
   # 输出为Markdown格式
-  python3 restore_chat.py --format markdown
-
-  # 指定输入文件并输出为Markdown格式
   python3 restore_chat.py my_chat.jsonl --format markdown
+
+  # 批量处理目录中的所有JSONL文件
+  python3 restore_chat.py --dir /path/to/chats
+
+  # 批量处理目录并输出为Markdown格式
+  python3 restore_chat.py --dir /path/to/chats --format markdown
         """
     )
 
     parser.add_argument(
         'jsonl_file',
         nargs='?',
-        default='case.jsonl',
-        help='输入的JSONL文件路径（默认: case.jsonl）'
+        default=None,
+        help='输入的JSONL文件路径'
+    )
+
+    parser.add_argument(
+        '-d', '--dir',
+        dest='directory',
+        help='批量处理指定目录中的所有JSONL文件（排除agent-前缀的文件）'
     )
 
     parser.add_argument(
@@ -438,34 +571,45 @@ def main():
     # 统一处理markdown格式参数
     output_format = 'markdown' if args.format in ['markdown', 'md'] else 'txt'
 
-    try:
-        restorer = ChatRestorer(args.jsonl_file, output_format)
-        output = restorer.restore()
+    # 判断是批量处理还是单文件处理
+    if args.directory:
+        # 批量处理目录
+        batch_process_directory(args.directory, output_format)
+    else:
+        # 单文件处理
+        jsonl_file = args.jsonl_file or 'case.jsonl'
 
-        # 根据格式选择输出文件扩展名
-        if output_format == 'markdown':
-            output_file = args.jsonl_file.replace('.jsonl', '_restored.md')
-        else:
-            output_file = args.jsonl_file.replace('.jsonl', '_restored.txt')
+        try:
+            restorer = ChatRestorer(jsonl_file, output_format)
+            output = restorer.restore()
 
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(output)
+            # 根据格式选择输出文件扩展名
+            input_path = Path(jsonl_file)
+            base_name = input_path.stem
 
-        print(f"✅ 会话已成功还原！")
-        print(f"📄 输出格式: {output_format.upper()}")
-        print(f"📄 输出文件: {output_file}")
-        print(f"\n预览前50行:")
-        print("=" * 80)
-        print('\n'.join(output.split('\n')[:50]))
+            if output_format == 'markdown':
+                output_file = str(input_path.parent / f"{base_name}_restored.md")
+            else:
+                output_file = str(input_path.parent / f"{base_name}_restored.txt")
 
-    except FileNotFoundError:
-        print(f"❌ 错误: 找不到文件 '{args.jsonl_file}'", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ 错误: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(output)
+
+            print(f"✅ 会话已成功还原！")
+            print(f"📄 输出格式: {output_format.upper()}")
+            print(f"📄 输出文件: {output_file}")
+            print(f"\n预览前50行:")
+            print("=" * 80)
+            print('\n'.join(output.split('\n')[:50]))
+
+        except FileNotFoundError:
+            print(f"❌ 错误: 找不到文件 '{jsonl_file}'", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ 错误: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 
 if __name__ == '__main__':

@@ -24,6 +24,13 @@
 - 时间戳格式化
 - 自动保留原始markdown格式的内容
 
+⚡ **批量处理能力**
+- **目录批量处理**：一次性处理整个目录中的所有会话文件
+- **智能过滤**：自动排除 `agent-` 前缀的子任务文件
+- **空文件检测**：自动跳过空文件
+- **独立输出目录**：在源目录下创建 `claude_parse` 子目录存放结果
+- **进度显示**：实时显示处理进度和统计信息
+
 ## 数据结构说明
 
 ### JSONL 文件格式
@@ -91,6 +98,8 @@ Claude Code 的会话数据以 JSONL（JSON Lines）格式存储，每一行是�
 
 ### 基本用法
 
+#### 单文件处理
+
 ```bash
 # 使用默认文件名 case.jsonl，输出文本格式
 python3 restore_chat.py
@@ -107,6 +116,26 @@ python3 restore_chat.py -f md
 # 指定输入文件并输出为Markdown格式
 python3 restore_chat.py your_chat.jsonl --format markdown
 ```
+
+#### 批量处理目录
+
+```bash
+# 批量处理目录中的所有JSONL文件（自动跳过agent-前缀的文件和空文件）
+python3 restore_chat.py --dir /path/to/chats
+
+# 批量处理并输出为Markdown格式
+python3 restore_chat.py --dir /path/to/chats --format markdown
+
+# 使用短参数
+python3 restore_chat.py -d /path/to/chats -f md
+```
+
+**批量处理说明**：
+- 自动扫描目录中的所有 `.jsonl` 和 `.json` 文件
+- 自动排除 `agent-` 前缀的文件（这些是子任务文件）
+- 自动跳过空文件（0字节文件）
+- 在目标目录下自动创建 `claude_parse` 子目录存放输出文件
+- 显示处理进度和统计信息
 
 ### 输出格式
 
@@ -213,6 +242,30 @@ Claude 的回复内容（保留原始markdown格式）...
 \`\`\`
 ```
 
+#### 批量处理示例输出
+
+```bash
+$ python3 restore_chat.py --dir ~/.claude/projects/my-project/chats --format markdown
+
+📁 正在扫描目录: ~/.claude/projects/my-project/chats
+✅ 找到 15 个符合条件的文件
+📂 输出目录: ~/.claude/projects/my-project/chats/claude_parse
+📄 输出格式: MARKDOWN
+
+[1/15] 处理中: 8d463779-c668-40d4-a0f6-b23518d22379.jsonl ... ✅ 成功
+[2/15] 处理中: b6eb8a6e-1e75-4e19-917d-cd1a9173ffb4.jsonl ... ✅ 成功
+[3/15] 处理中: c7d1911b-f735-4903-9f45-9c5931b58eb3.jsonl ... ✅ 成功
+...
+[15/15] 处理中: bb81858c-f8ba-4a96-8750-79bac1934255.json ... ✅ 成功
+
+================================================================================
+批量处理完成！
+  成功: 15 个文件
+  失败: 0 个文件
+  输出目录: ~/.claude/projects/my-project/chats/claude_parse
+================================================================================
+```
+
 ## 文件说明
 
 ### 核心文件
@@ -298,6 +351,8 @@ class ChatRestorer:
 - 🔍 **问题排查**: 分析会话中的工具调用和错误
 - 📊 **使用分析**: 统计 token 使用情况
 - 📝 **文档记录**: 导出会话作为项目文档
+- 🗂️ **批量归档**: 一次性导出整个项目的所有会话记录
+- 📖 **知识库构建**: 将多个会话转换为Markdown格式，构建个人知识库
 
 ## 与 dev_plan.md 的关系
 
@@ -311,17 +366,17 @@ class ChatRestorer:
 ## 局限性
 
 - 不支持从 SQLite 数据库（`__store.db`）读取元数据
-- 不处理项目级别的组织（仅处理单个 JSONL 文件）
+- 需要手动指定JSONL文件或目录路径
 
 ## 未来改进
 
 - [ ] 支持从 `~/.claude/__store.db` 读取会话列表
 - [ ] 添加交互式会话选择菜单
-- [ ] 支持批量导出多个会话
+- [x] 支持批量导出多个会话 ✅
 - [x] 添加 Markdown 输出格式 ✅
 - [ ] 添加 HTML 输出格式
 - [ ] 支持配置文件自定义格式化规则
-- [ ] 添加会话统计分析功能
+- [ ] 添加会话统计分析功能（token使用汇总、会话时长等）
 
 ## 许可证
 
