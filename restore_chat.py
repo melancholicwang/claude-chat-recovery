@@ -40,8 +40,22 @@ class ChatRestorer:
                             if item.get('type') == 'tool_result':
                                 tool_use_id = item.get('tool_use_id')
                                 if tool_use_id:
+                                    # content可能是字符串或列表，需要统一处理为字符串
+                                    raw_content = item.get('content', '')
+                                    if isinstance(raw_content, list):
+                                        # 如果是列表，提取所有text内容
+                                        text_parts = []
+                                        for c in raw_content:
+                                            if isinstance(c, dict) and c.get('type') == 'text':
+                                                text_parts.append(c.get('text', ''))
+                                            elif isinstance(c, str):
+                                                text_parts.append(c)
+                                        content_str = '\n'.join(text_parts)
+                                    else:
+                                        content_str = str(raw_content)
+
                                     self.tool_results[tool_use_id] = {
-                                        'content': item.get('content', ''),
+                                        'content': content_str,
                                         'timestamp': obj.get('timestamp')
                                     }
 
